@@ -2,31 +2,51 @@ package db;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.Properties;
 
+/**
+ * Utilitaire de connexion à la base de données.
+ * La configuration est lue depuis le fichier {@code config.properties}
+ * placé à la racine du classpath (src/resources/).
+ *
+ * <p>Propriétés attendues :</p>
+ * <ul>
+ *   <li>{@code db.url}        — URL JDBC (ex: jdbc:mysql://localhost:3306/gestion_stock)</li>
+ *   <li>{@code db.utilisateur} — nom d'utilisateur MySQL</li>
+ *   <li>{@code db.motDePasse}  — mot de passe MySQL</li>
+ * </ul>
+ */
 public class Connecter {
 
-    public static java.sql.Connection connecter() {
-        java.sql.Connection con = null;
-        try{
+    /**
+     * Ouvre et retourne une connexion à la base de données.
+     * Les paramètres sont lus depuis {@code config.properties}.
+     *
+     * @return connexion JDBC active, ou {@code null} en cas d'erreur SQL
+     * @throws RuntimeException si {@code config.properties} est introuvable
+     */
+    public static Connection connecter() {
+        Connection con = null;
+        try {
             Properties properties = new Properties();
             InputStream inputStream = Connecter.class
-                .getClassLoader()
-                .getResourceAsStream("config.properties");
+                    .getClassLoader()
+                    .getResourceAsStream("config.properties");
 
             if (inputStream == null) {
                 throw new IOException("Fichier config.properties non trouvé dans le classpath.");
             }
             properties.load(inputStream);
 
-            String url         = properties.getProperty("db.url");
-            String utilisateur = properties.getProperty("db.utilisateur");
-            String motDePasse  = properties.getProperty("db.motDePasse");
+            String url          = properties.getProperty("db.url");
+            String utilisateur  = properties.getProperty("db.utilisateur");
+            String motDePasse   = properties.getProperty("db.motDePasse");
 
             con = DriverManager.getConnection(url, utilisateur, motDePasse);
-            System.out.println("Connexion réussie à gestion_produit.");
+            System.out.println("Connexion réussie à gestion_produits.");
 
         } catch (SQLException e) {
             System.err.println("Erreur lors de la connexion : " + e.getMessage());
@@ -36,8 +56,13 @@ public class Connecter {
         }
         return con;
     }
-        
-    public static void fermerConnection(java.sql.Connection connection) {
+
+    /**
+     * Ferme proprement une connexion JDBC.
+     *
+     * @param connection connexion à fermer (peut être {@code null})
+     */
+    public static void fermerConnection(Connection connection) {
         if (connection != null) {
             try {
                 connection.close();
@@ -47,5 +72,4 @@ public class Connecter {
             }
         }
     }
-
 }

@@ -1,5 +1,8 @@
-package Model;
+package model;
 
+/**
+ * Classe abstraite représentant un produit générique dans le système de stock.
+ */
 public abstract class Produit implements Stockable {
 
     private int id;
@@ -85,7 +88,9 @@ public abstract class Produit implements Stockable {
         return quantiteStock;
     }
 
-    // affiche les informations de chaque sous classe
+    /** Méthode abstraite pour l'affichage
+     * des informations spécifiques
+     * */
     public abstract void afficherInfos();
 
 }

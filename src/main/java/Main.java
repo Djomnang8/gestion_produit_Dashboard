@@ -1,15 +1,18 @@
-import Controller.ProduitController;
-import Repository.ProduitRepository;
-import Repository.ProduitRepositorySql;
-import Service.ProduitServiceImpl;
-import View.ClientView;
-import View.ProduitView;
+import controller.ProduitController;
+import repository.ProduitRepository;
+import repository.ProduitRepositorySql;
+import service.ProduitServiceImpl;
+import view.LoginView;
 import db.Connecter;
 
 import java.sql.Connection;
 
 public class Main {
 
+    /**
+     * Point d'entrée principal de l'application StockManager Pro.
+     * Lance la fenêtre de connexion au démarrage.
+     * **/
     public static void main(String[] args) {
 
         // Connexion à la base de données
@@ -23,9 +26,6 @@ public class Main {
         ProduitServiceImpl produitService = new ProduitServiceImpl(produitRepository);
         ProduitController produitController = new ProduitController(produitService);
 
-
-        new ProduitView(produitController);
-
-        //new ClientView(produitController);
+        new LoginView(produitController);
     }
 }

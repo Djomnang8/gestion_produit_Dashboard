@@ -1,0 +1,1 @@
+typeSearchIndex = [{"l":"All Classes and Interfaces","u":"allclasses-index.html"},{"p":"view","l":"HistogrammePanel.BarChart"},{"p":"view","l":"ClientView"},{"p":"view","l":"HistogrammePanel"},{"p":"view","l":"InscriptionView"},{"p":"view","l":"LoginView"},{"p":"view","l":"ProduitView"}];updateSearchResults();
