@@ -4,6 +4,9 @@ import auth.AuthService;
 import auth.User;
 import controller.ProduitController;
 import model.*;
+import service.file_attenteView;
+import service.file_attenteView.PendingOrder;
+import service.SalesTracker;
 import javax.swing.*;
 import javax.swing.table.*;
 import java.awt.*;
@@ -14,9 +17,11 @@ import static view.LoginView.*;
 
 /**
  * Vue principale VENDEUR.
- * - Recherche avancée (nom, stock, prix, type, date limite) insensible à la casse.
+ * - Recherche LIVE : le tableau se filtre automatiquement à chaque frappe.
+ * - Panneau "Commandes en attente" : affiche les commandes clients soumises,
+ *   le vendeur peut les Accepter ou Refuser.
  * - Formulaire de saisie avec images publicitaires à droite.
- * - Onglet CLIENT intégré pour passer des commandes.
+ * - Onglet CLIENT intégré.
  */
 public class ProduitView extends JFrame {
 
@@ -29,6 +34,11 @@ public class ProduitView extends JFrame {
     private JLabel lblTotal, lblValeur, lblAlerte;
     private ClientView clientPanel;
 
+    // Panneau de notifications commandes
+    private DefaultTableModel ordersTableModel;
+    private JTable ordersTable;
+    private JLabel lblPendingBadge;
+
     /**
      * @param ctrl contrôleur produit partagé
      * @param user utilisateur VENDEUR connecté
@@ -37,7 +47,7 @@ public class ProduitView extends JFrame {
         this.ctrl        = ctrl;
         this.currentUser = user;
         setTitle("Gestion Stock — " + user.getUsername());
-        setSize(950, 650);
+        setSize(1000, 680);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
 
@@ -97,11 +107,11 @@ public class ProduitView extends JFrame {
         gbc.insets = new Insets(2, 5, 2, 5);
         gbc.fill   = GridBagConstraints.HORIZONTAL;
 
-        tNom       = new JTextField(12);
-        tPrix      = new JTextField(12);
-        tQuantite  = new JTextField(12);
+        tNom        = new JTextField(12);
+        tPrix       = new JTextField(12);
+        tQuantite   = new JTextField(12);
         tSpecifique = new JTextField(12);
-        cType      = new JComboBox<>(new String[]{"Alimentaire", "Electronique"});
+        cType       = new JComboBox<>(new String[]{"Alimentaire", "Electronique"});
 
         ajouterChamp(formPanel, "Nom:",        tNom,        gbc, 0);
         ajouterChamp(formPanel, "Prix:",        tPrix,       gbc, 1);
@@ -153,7 +163,7 @@ public class ProduitView extends JFrame {
         centerArea.add(formPanel, BorderLayout.CENTER);
         centerArea.add(adsPanel,  BorderLayout.EAST);
 
-        // ── Recherche avancée ─────────────────────────────────────────────────
+        // ── Recherche LIVE ────────────────────────────────────────────────────
         JPanel searchPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         tRecherche = new JTextField(20);
         JButton bRechercher = new JButton("🔍 Rechercher");
@@ -171,7 +181,7 @@ public class ProduitView extends JFrame {
         searchPanel.add(bActualiser);
         searchPanel.add(hintLabel);
 
-        // Tableau — colonnes : Nom | Prix HT | Stock | Type | Date Limite / Garantie
+        // Tableau produits
         tableModel = new DefaultTableModel(
                 new String[]{"Nom", "Prix HT", "Stock", "Type", "Date Limite / Garantie (mois)"}, 0) {
             public boolean isCellEditable(int r, int c) { return false; }
@@ -180,7 +190,7 @@ public class ProduitView extends JFrame {
         table.setRowHeight(22);
 
         JPanel bottomPanel = new JPanel(new BorderLayout());
-        bottomPanel.add(searchPanel,         BorderLayout.NORTH);
+        bottomPanel.add(searchPanel,            BorderLayout.NORTH);
         bottomPanel.add(new JScrollPane(table), BorderLayout.CENTER);
         bottomPanel.setPreferredSize(new Dimension(0, 260));
 
@@ -192,8 +202,10 @@ public class ProduitView extends JFrame {
         clientPanel = new ClientView(ctrl);
         JPanel clientPanelContent = (JPanel) clientPanel.getContentPane();
 
-        tabbedPane.addTab(" VENDEUR ", vendeurPanel);
-        tabbedPane.addTab(" CLIENT  ", clientPanelContent);
+        // ── Onglets ───────────────────────────────────────────────────────────
+        tabbedPane.addTab(" VENDEUR ",    vendeurPanel);
+        tabbedPane.addTab(" CLIENT  ",    clientPanelContent);
+        tabbedPane.addTab(" COMMANDES ",  buildOrdersPanel());
 
         for (int i = 0; i < tabbedPane.getTabCount(); i++) {
             JLabel lbl = new JLabel(tabbedPane.getTitleAt(i));
@@ -201,6 +213,22 @@ public class ProduitView extends JFrame {
             lbl.setHorizontalAlignment(SwingConstants.CENTER);
             lbl.setFont(new Font("Arial", Font.BOLD, 12));
             lbl.setForeground(C_DARK);
+            if (i == 2) {
+                // Badge pour l'onglet commandes
+                lblPendingBadge = new JLabel(" 0 ");
+                lblPendingBadge.setBackground(new Color(200, 50, 50));
+                lblPendingBadge.setForeground(Color.WHITE);
+                lblPendingBadge.setOpaque(true);
+                lblPendingBadge.setFont(new Font("Arial", Font.BOLD, 10));
+                lbl.setIcon(new javax.swing.ImageIcon());
+                JPanel tabComp = new JPanel(new FlowLayout(FlowLayout.CENTER, 2, 0));
+                tabComp.setOpaque(false);
+                tabComp.setPreferredSize(new Dimension(100, 50));
+                tabComp.add(lbl);
+                tabComp.add(lblPendingBadge);
+                tabbedPane.setTabComponentAt(i, tabComp);
+                continue;
+            }
             tabbedPane.setTabComponentAt(i, lbl);
         }
 
@@ -211,7 +239,7 @@ public class ProduitView extends JFrame {
         getContentPane().add(topBar,     BorderLayout.NORTH);
         getContentPane().add(tabbedPane, BorderLayout.CENTER);
 
-        // ── Actions boutons ───────────────────────────────────────────────────
+        // ── Actions boutons produits ──────────────────────────────────────────
         bAjouter.addActionListener(e -> {
             Produit p = recupererForm();
             if (p == null) return;
@@ -257,8 +285,14 @@ public class ProduitView extends JFrame {
             }
         });
 
+        // Recherche bouton
         bRechercher.addActionListener(e -> rechercherAvancee());
-        tRecherche.addActionListener(e -> rechercherAvancee());
+        // Recherche LIVE : chaque frappe déclenche la recherche
+        tRecherche.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void insertUpdate(javax.swing.event.DocumentEvent e)  { rechercherAvancee(); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e)  { rechercherAvancee(); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { rechercherAvancee(); }
+        });
         bActualiser.addActionListener(e -> { tRecherche.setText(""); rafraichir(); });
 
         // Sélection d'une ligne → pré-remplir le formulaire
@@ -275,11 +309,209 @@ public class ProduitView extends JFrame {
             }
         });
 
+        // ── Listener OrderQueue : notifier le vendeur dès qu'une commande arrive ──
+        file_attenteView.getInstance().addListener(order -> {
+            SwingUtilities.invokeLater(() -> {
+                rafraichirCommandes();
+                // Notification visuelle (popup + clignotement du badge)
+                JOptionPane.showMessageDialog(ProduitView.this,
+                        "🔔 Nouvelle commande reçue !\n\n"
+                                + "Client  : " + order.clientUsername + "\n"
+                                + "Produit : " + order.nomProduit + "\n"
+                                + "Quantité: " + order.quantite + "\n"
+                                + "Total   : " + String.format("%.0f FCFA", order.getTotal()),
+                        "Nouvelle Commande", JOptionPane.INFORMATION_MESSAGE);
+            });
+        });
+
         rafraichir();
         setVisible(true);
     }
 
-    // ── Recherche avancée ─────────────────────────────────────────────────────
+    // ── Panneau de gestion des commandes (onglet COMMANDES) ───────────────────
+
+    private JPanel buildOrdersPanel() {
+        JPanel root = new JPanel(new BorderLayout(5, 5));
+        root.setBackground(C_LIGHT);
+        root.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+
+        // Titre
+        JLabel title = new JLabel("📋 Commandes en attente de validation", SwingConstants.LEFT);
+        title.setFont(new Font("Segoe UI", Font.BOLD, 14));
+        title.setForeground(C_DARK);
+        title.setBorder(BorderFactory.createEmptyBorder(0, 0, 8, 0));
+
+        // Tableau des commandes
+        ordersTableModel = new DefaultTableModel(
+                new String[]{"#", "Client", "Produit", "Qté", "Total (FCFA)", "Statut"}, 0) {
+            public boolean isCellEditable(int r, int c) { return false; }
+        };
+        ordersTable = new JTable(ordersTableModel);
+        ordersTable.setRowHeight(26);
+        ordersTable.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        ordersTable.getTableHeader().setBackground(C_DARK);
+        ordersTable.getTableHeader().setForeground(Color.WHITE);
+        ordersTable.getTableHeader().setFont(new Font("Segoe UI", Font.BOLD, 12));
+        ordersTable.setSelectionBackground(new Color(200, 230, 255));
+
+        // Colorer les lignes selon statut
+        ordersTable.setDefaultRenderer(Object.class, new DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(JTable t, Object val,
+                                                           boolean sel, boolean focus, int row, int col) {
+                Component c = super.getTableCellRendererComponent(t, val, sel, focus, row, col);
+                String statut = ordersTableModel.getValueAt(row, 5).toString();
+                if (!sel) {
+                    switch (statut) {
+                        case "✅ Acceptée" -> c.setBackground(new Color(210, 250, 210));
+                        case "❌ Refusée"  -> c.setBackground(new Color(255, 210, 210));
+                        default            -> c.setBackground(new Color(255, 250, 200));
+                    }
+                }
+                return c;
+            }
+        });
+
+        // Boutons Accepter / Refuser
+        JButton btnAccepter = new JButton("✅  Accepter la commande");
+        btnAccepter.setBackground(new Color(34, 160, 80));
+        btnAccepter.setForeground(Color.WHITE);
+        btnAccepter.setFocusPainted(false);
+        btnAccepter.setBorderPainted(false);
+        btnAccepter.setFont(new Font("Segoe UI", Font.BOLD, 13));
+
+        JButton btnRefuser = new JButton("❌  Refuser la commande");
+        btnRefuser.setBackground(new Color(200, 50, 50));
+        btnRefuser.setForeground(Color.WHITE);
+        btnRefuser.setFocusPainted(false);
+        btnRefuser.setBorderPainted(false);
+        btnRefuser.setFont(new Font("Segoe UI", Font.BOLD, 13));
+
+        JButton btnActualiser = new JButton("🔄 Actualiser");
+        btnActualiser.setFocusPainted(false);
+
+        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        btnPanel.setBackground(C_LIGHT);
+        btnPanel.add(btnAccepter);
+        btnPanel.add(btnRefuser);
+        btnPanel.add(btnActualiser);
+
+        root.add(title,                    BorderLayout.NORTH);
+        root.add(new JScrollPane(ordersTable), BorderLayout.CENTER);
+        root.add(btnPanel,                 BorderLayout.SOUTH);
+
+        // ── Actions ──────────────────────────────────────────────────────────
+
+        btnAccepter.addActionListener(e -> {
+            int row = ordersTable.getSelectedRow();
+            if (row < 0) {
+                JOptionPane.showMessageDialog(this,
+                        "❌ Sélectionnez une commande à accepter.", "Erreur", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            int orderId = (int) ordersTableModel.getValueAt(row, 0);
+            PendingOrder order = findOrder(orderId);
+            if (order == null || order.status != PendingOrder.Status.ATTENTE) {
+                JOptionPane.showMessageDialog(this,
+                        "⚠️ Cette commande a déjà été traitée.", "Info", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
+            // Vérifier le stock au moment de l'acceptation
+            Produit p = ctrl.getProduitByNom(order.nomProduit);
+            if (p == null) {
+                JOptionPane.showMessageDialog(this,
+                        "❌ Produit introuvable : " + order.nomProduit, "Erreur", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            if (p.getQuantiteStock() < order.quantite) {
+                JOptionPane.showMessageDialog(this,
+                        "⚠️ Stock insuffisant pour honorer cette commande.\nDisponible : "
+                                + p.getQuantiteStock() + " | Demandé : " + order.quantite,
+                        "Stock insuffisant", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
+            // Diminuer le stock et mettre à jour
+            p.retirerStock(order.quantite);
+            ctrl.updateProduit(p);
+            SalesTracker.recordSale(order.nomProduit, order.quantite);
+
+            // Changer le statut de la commande
+            order.status = PendingOrder.Status.ACCEPTEE;
+
+            JOptionPane.showMessageDialog(this,
+                    "✅ Commande #" + orderId + " acceptée.\n"
+                            + "Stock mis à jour : " + p.getQuantiteStock() + " restant(s).",
+                    "Commande acceptée", JOptionPane.INFORMATION_MESSAGE);
+
+            rafraichirCommandes();
+            rafraichir();
+        });
+
+        btnRefuser.addActionListener(e -> {
+            int row = ordersTable.getSelectedRow();
+            if (row < 0) {
+                JOptionPane.showMessageDialog(this,
+                        "❌ Sélectionnez une commande à refuser.", "Erreur", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            int orderId = (int) ordersTableModel.getValueAt(row, 0);
+            PendingOrder order = findOrder(orderId);
+            if (order == null || order.status != PendingOrder.Status.ATTENTE) {
+                JOptionPane.showMessageDialog(this,
+                        "⚠️ Cette commande a déjà été traitée.", "Info", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            int confirm = JOptionPane.showConfirmDialog(this,
+                    "Refuser la commande #" + orderId + " de " + order.clientUsername + " ?",
+                    "Confirmation", JOptionPane.YES_NO_OPTION);
+            if (confirm == JOptionPane.YES_OPTION) {
+                order.status = PendingOrder.Status.REFUSEE;
+                rafraichirCommandes();
+            }
+        });
+
+        btnActualiser.addActionListener(e -> rafraichirCommandes());
+
+        return root;
+    }
+
+    /** Rafraîchit le tableau des commandes et le badge. */
+    private void rafraichirCommandes() {
+        if (ordersTableModel == null) return;
+        ordersTableModel.setRowCount(0);
+        List<PendingOrder> all = file_attenteView.getInstance().getAll();
+        for (PendingOrder o : all) {
+            String statut;
+            switch (o.status) {
+                case ACCEPTEE -> statut = "✅ Acceptée";
+                case REFUSEE  -> statut = "❌ Refusée";
+                default       -> statut = "⏳ En attente";
+            }
+            ordersTableModel.addRow(new Object[]{
+                    o.id,
+                    o.clientUsername,
+                    o.nomProduit,
+                    o.quantite,
+                    String.format("%.0f", o.getTotal()),
+                    statut
+            });
+        }
+        // Mise à jour du badge
+        long pending = all.stream().filter(o -> o.status == PendingOrder.Status.ATTENTE).count();
+        if (lblPendingBadge != null) {
+            lblPendingBadge.setText(" " + pending + " ");
+            lblPendingBadge.setBackground(pending > 0 ? new Color(200, 50, 50) : new Color(100, 160, 100));
+        }
+    }
+
+    private PendingOrder findOrder(int id) {
+        return file_attenteView.getInstance().getAll().stream()
+                .filter(o -> o.id == id).findFirst().orElse(null);
+    }
+
+    // ── Recherche avancée (appelée live et sur clic bouton) ───────────────────
     private void rechercherAvancee() {
         String raw = tRecherche.getText().trim().toLowerCase();
         if (raw.isEmpty()) { rafraichir(); return; }
@@ -314,29 +546,30 @@ public class ProduitView extends JFrame {
         }).collect(Collectors.toList());
 
         tableModel.setRowCount(0);
-        if (resultats.isEmpty()) {
-            JOptionPane.showMessageDialog(this,
-                    "Aucun produit trouvé pour : « " + tRecherche.getText().trim() + " »",
-                    "Recherche", JOptionPane.INFORMATION_MESSAGE);
-        } else {
-            resultats.forEach(this::ajouterLigneTableau);
-        }
+        // En mode live, on n'affiche plus de popup "aucun résultat" pour éviter le spam
+        resultats.forEach(this::ajouterLigneTableau);
     }
 
-    // ── Rafraîchissement ─────────────────────────────────────────────────────
+    // ── Rafraîchissement ──────────────────────────────────────────────────────
     private void rafraichir() {
-        tableModel.setRowCount(0);
-        List<Produit> list = ctrl.getAllProduits();
-        double val = 0; int alt = 0;
-        for (Produit p : list) {
-            ajouterLigneTableau(p);
-            val += p.getPrixHT() * p.getQuantiteStock();
-            if (p.getQuantiteStock() < 5) alt++;
+        // Si une recherche est active, ne pas écraser le résultat
+        if (!tRecherche.getText().trim().isEmpty()) {
+            rechercherAvancee();
+        } else {
+            tableModel.setRowCount(0);
+            List<Produit> list = ctrl.getAllProduits();
+            double val = 0; int alt = 0;
+            for (Produit p : list) {
+                ajouterLigneTableau(p);
+                val += p.getPrixHT() * p.getQuantiteStock();
+                if (p.getQuantiteStock() < 5) alt++;
+            }
+            lblTotal.setText(String.valueOf(list.size()));
+            lblValeur.setText(String.format("%.0f", val));
+            lblAlerte.setText(String.valueOf(alt));
         }
-        lblTotal.setText(String.valueOf(list.size()));
-        lblValeur.setText(String.format("%.0f", val));
-        lblAlerte.setText(String.valueOf(alt));
         if (clientPanel != null) clientPanel.chargerProduits();
+        rafraichirCommandes();
     }
 
     private void showStockAlert(List<Produit> list) {
@@ -361,12 +594,8 @@ public class ProduitView extends JFrame {
         dlg.setVisible(true);
     }
 
-    // ── Helpers ──────────────────────────────────────────────────────────────
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
-    /**
-     * Ajoute une ligne au tableau avec les informations du produit.
-     * Affiche la date de péremption pour les alimentaires, la durée de garantie pour les électroniques.
-     */
     private void ajouterLigneTableau(Produit p) {
         String info = (p instanceof ProduitAlimentaire pa)
                 ? pa.getDatePeremption()
@@ -398,11 +627,6 @@ public class ProduitView extends JFrame {
         return v;
     }
 
-    /**
-     * Lit le formulaire et construit un objet Produit.
-     * Pour un alimentaire, le champ "Date Limite" doit être au format JJ-MM-AAAA.
-     * Pour un électronique, le champ "Garantie" doit être un entier (nombre de mois).
-     */
     private Produit recupererForm() {
         String nom      = tNom.getText().trim();
         String prixStr  = tPrix.getText().trim();
